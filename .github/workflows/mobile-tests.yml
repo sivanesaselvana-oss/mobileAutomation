@@ -27,7 +27,7 @@ jobs:
     name: Typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -50,7 +50,7 @@ jobs:
       UDID: emulator-5554
       NO_RESET: 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check APK source is configured
         id: apk
