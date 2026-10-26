@@ -1,0 +1,140 @@
+name: Mobile Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: 'Spec to run (blank = all specs), e.g. ./test/specs/qrcode.spec.ts'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  API_LEVEL: '34'
+  APP_PACKAGE: com.onebill.oneso
+  APP_ACTIVITY: com.onebill.oneso.MainActivity
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+
+  android-e2e:
+    name: Android E2E (API 34)
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Repository secret: direct download URL of the One Bill APK under test
+      ONEBILL_APK_URL: ${{ secrets.ONEBILL_APK_URL }}
+      APP_PATH: ./apps/onebill.apk
+      DEVICE_NAME: Android Emulator
+      UDID: emulator-5554
+      NO_RESET: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check APK source is configured
+        id: apk
+        run: |
+          if [ -z "$ONEBILL_APK_URL" ]; then
+            echo "::warning title=E2E skipped::Add the ONEBILL_APK_URL repository secret to run Android E2E tests."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download One Bill APK
+        if: steps.apk.outputs.available == 'true'
+        run: |
+          mkdir -p apps
+          curl -fsSL "$ONEBILL_APK_URL" -o "$APP_PATH"
+          ls -lh apps
+
+      - uses: actions/setup-node@v4
+        if: steps.apk.outputs.available == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        if: steps.apk.outputs.available == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies (incl. Appium + UiAutomator2 driver)
+        if: steps.apk.outputs.available == 'true'
+        run: npm ci
+
+      - name: Enable KVM for the emulator
+        if: steps.apk.outputs.available == 'true'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Cache AVD
+        if: steps.apk.outputs.available == 'true'
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ env.API_LEVEL }}-google_apis-x86_64
+
+      - name: Create AVD snapshot for caching
+        if: steps.apk.outputs.available == 'true' && steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: echo "Generated AVD snapshot for caching."
+
+      - name: Run tests on emulator
+        if: steps.apk.outputs.available == 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: mkdir -p screenshots logs && npx wdio run ./wdio.conf.ts ${{ github.event.inputs.spec && format('--spec {0}', github.event.inputs.spec) || '' }}
+
+      - name: Upload screenshots and logs
+        if: always() && steps.apk.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results-${{ github.run_number }}
+          path: |
+            screenshots/
+            logs/
+          retention-days: 14
+          if-no-files-found: ignore
