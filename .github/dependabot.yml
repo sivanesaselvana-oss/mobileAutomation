@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      wdio:
+        patterns: ['@wdio/*', 'webdriverio', 'expect-webdriverio']
+      appium:
+        patterns: ['appium', 'appium-*']
+      dev-tools:
+        patterns: ['typescript', 'tsx', '@types/*', 'dotenv']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

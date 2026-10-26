@@ -52,6 +52,20 @@ With neither set, tests launch Android **Settings** – the smoke test uses this
 | `npm run doctor` | Appium environment check |
 | `npm run appium` | Start Appium manually (for Appium Inspector) |
 
+## CI (GitHub Actions)
+
+`.github/workflows/mobile-tests.yml` runs on push/PR to `main` and manually (*Actions → Mobile Tests → Run workflow*, optional `spec`):
+1. **Typecheck** – `npm ci` + `npm run typecheck`.
+2. **Android E2E** – boots an API 34 emulator on `ubuntu-latest`, installs the APK and runs WebdriverIO. Screenshots + logs are uploaded as the `e2e-results-<run>` artifact.
+
+Required repository secret (*Settings → Secrets and variables → Actions*):
+
+| Secret | Value |
+|---|---|
+| `ONEBILL_APK_URL` | Direct download URL of the One Bill APK under test |
+
+Without it, the E2E job is skipped with a warning.
+
 ## Inspecting elements
 
 Install [Appium Inspector](https://github.com/appium/appium-inspector/releases), run `npm run appium`, connect to `http://127.0.0.1:4723` with:
